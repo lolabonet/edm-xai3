@@ -1,0 +1,290 @@
+---
+title: "XAI3"
+author: "María Dolores Bonet, Claudia Piqueras and Elena Moya"
+date: "2025-05-15"
+output: html_document
+---
+
+
+**XAI: Interpretable models 3**
+
+**Load libraries**
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,   
+  message = FALSE,  
+  warning = FALSE   
+)
+```
+
+```{r}
+library(randomForest)
+library(pdp)
+library(ggplot2)
+library(viridis)
+library(ggExtra)
+```
+
+**1. 1D PDP for bike rental counts**
+
+*1.1. Read data*
+
+```{r}
+day_data <- read.csv("day.csv", stringsAsFactors = FALSE)
+```
+
+*1.2. Create “days since 2011” variable*
+
+```{r}
+day_data$days_since_2011 <- as.numeric(
+  as.Date(day_data$dteday) - as.Date("2011-01-01")
+)
+```
+
+*1.3. Fit Random Forest*
+
+```{r}
+set.seed(123)
+rf_bike <- randomForest(
+  cnt ~ days_since_2011 + temp + hum + windspeed,
+  data = day_data,
+  importance = TRUE
+)
+```
+
+*1.4. Compute 1D partial dependences*
+
+```{r}
+p_days <- partial(rf_bike, pred.var = "days_since_2011", grid.resolution = 100)
+p_temp <- partial(rf_bike, pred.var = "temp",              grid.resolution = 100)
+p_hum  <- partial(rf_bike, pred.var = "hum",               grid.resolution = 100)
+p_wind <- partial(rf_bike, pred.var = "windspeed",         grid.resolution = 100)
+```
+
+
+*1.5. Plot them side by side*
+
+```{r}
+p1 <- autoplot(p_days, 
+               xlab = "Days since 2011", 
+               ylab = "Pred. cnt") +
+  ggtitle("Days") +
+  geom_rug(data = day_data, 
+           aes(x = days_since_2011), 
+           inherit.aes = FALSE,
+           sides = "b",    # bottom rug
+           alpha = 0.3)
+
+# Temperature
+p2 <- autoplot(p_temp, 
+               xlab = "Temperature (norm.)", 
+               ylab = "Pred. cnt") +
+  ggtitle("Temp") +
+  geom_rug(data = day_data, 
+           aes(x = temp), 
+           inherit.aes = FALSE,
+           sides = "b",
+           alpha = 0.3)
+
+# Humidity
+p3 <- autoplot(p_hum, 
+               xlab = "Humidity (norm.)", 
+               ylab = "Pred. cnt") +
+  ggtitle("Hum") +
+  geom_rug(data = day_data, 
+           aes(x = hum), 
+           inherit.aes = FALSE,
+           sides = "b",
+           alpha = 0.3)
+
+# Windspeed
+p4 <- autoplot(p_wind, 
+               xlab = "Windspeed (norm.)", 
+               ylab = "Pred. cnt") +
+  ggtitle("Wind") +
+  geom_rug(data = day_data, 
+           aes(x = windspeed), 
+           inherit.aes = FALSE,
+           sides = "b",
+           alpha = 0.3)
+
+# Arrange side by side
+gridExtra::grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+
+
+**2. 2D PDP: Humidity vs Temperature**
+
+*2.1. Fit Random Forest*
+
+```{r}
+set.seed(123)
+rf_bike <- randomForest(
+  cnt ~ days_since_2011 + temp + hum + windspeed,
+  data       = day_data,
+  importance = TRUE
+)
+```
+
+*2.2. Sample safely (≤ 2000 rows)*
+
+```{r}
+n           <- nrow(day_data)
+target_size <- 2000
+sample_size <- min(target_size, n)
+set.seed(42)
+sample_data <- day_data[sample(seq_len(n), sample_size), ]
+```
+
+*2.3. Compute 2D PDP*
+
+```{r}
+p2d <- partial(
+  object          = rf_bike,
+  pred.var        = c("temp", "hum"),
+  grid.resolution = 50,
+  train           = sample_data
+)
+```
+
+*2.4. Make heatmap + rug marginal*
+
+```{r}
+ggplot(p2d, aes(x = temp, y = hum, fill = yhat)) +
+  geom_tile(
+    width  = diff(range(p2d$temp)) / (50 - 1),
+    height = diff(range(p2d$hum))  / (50 - 1)
+  ) +
+  # Rug marginal: marcas en ambos ejes para cada observación
+  geom_rug(
+    data         = sample_data,
+    aes(x = temp, y = hum),
+    inherit.aes  = FALSE,
+    alpha        = 0.3,
+    size         = 0.5
+  ) +
+  scale_fill_viridis(
+    name   = "Pred. count",
+    option = "B"
+  ) +
+  labs(
+    x     = "Temp (normalized)",
+    y     = "Hum (normalized)",
+    title = "2D PDP of Predicted Bike Rentals\nwith Marginal Rugs"
+  ) +
+  theme_minimal()
+```
+
+**3. One‐dimensional PDP for House Price Prediction**
+
+*3.1. Read data*
+
+```{r}
+house_data <- read.csv("kc_house_data.csv", stringsAsFactors = FALSE)
+```
+
+*3.2. Safe subsample (≤2 000 rows)*
+
+```{r}
+set.seed(42)
+n           <- nrow(house_data)
+sample_size <- min(2000, n)
+sample_data <- house_data[sample(seq_len(n), sample_size), ]
+```
+
+*3.3. Fit Random Forest*
+
+```{r}
+set.seed(123)
+rf_house <- randomForest(
+  price ~ bedrooms + bathrooms + sqft_living + sqft_lot + floors + yr_built,
+  data       = sample_data,
+  importance = TRUE
+)
+```
+
+*3.4. Compute 1-D partial dependences*
+
+```{r}
+p_bedrooms    <- partial(rf_house,
+                         pred.var        = "bedrooms",
+                         grid.resolution = length(unique(sample_data$bedrooms)),
+                         train           = sample_data)
+p_bathrooms   <- partial(rf_house,
+                         pred.var        = "bathrooms",
+                         grid.resolution = 50,
+                         train           = sample_data)
+p_sqft_living <- partial(rf_house,
+                         pred.var        = "sqft_living",
+                         grid.resolution = 100,
+                         train           = sample_data)
+p_floors      <- partial(rf_house,
+                         pred.var        = "floors",
+                         grid.resolution = length(unique(sample_data$floors)),
+                         train           = sample_data)
+```
+
+*3.5. Plot each PDP with a rug of the data distribution*
+
+```{r}
+p1 <- autoplot(p_bedrooms) +
+  ggtitle("Bedrooms") +
+  xlab("Number of bedrooms") +
+  ylab("Predicted price") +
+  geom_rug(data         = sample_data,
+           aes(x = bedrooms),
+           inherit.aes  = FALSE,
+           sides        = "b",
+           alpha        = 0.3)
+
+p2 <- autoplot(p_bathrooms) +
+  ggtitle("Bathrooms") +
+  xlab("Number of bathrooms") +
+  ylab("Predicted price") +
+  geom_rug(data         = sample_data,
+           aes(x = bathrooms),
+           inherit.aes  = FALSE,
+           sides        = "b",
+           alpha        = 0.3)
+
+p3 <- autoplot(p_sqft_living) +
+  ggtitle("Sqft living") +
+  xlab("Square feet of living area") +
+  ylab("Predicted price") +
+  geom_rug(data         = sample_data,
+           aes(x = sqft_living),
+           inherit.aes  = FALSE,
+           sides        = "b",
+           alpha        = 0.3)
+
+p4 <- autoplot(p_floors) +
+  ggtitle("Floors") +
+  xlab("Number of floors") +
+  ylab("Predicted price") +
+  geom_rug(data         = sample_data,
+           aes(x = floors),
+           inherit.aes  = FALSE,
+           sides        = "b",
+           alpha        = 0.3)
+```
+
+*3.7. Arrange plots in a 2×2 grid*
+
+```{r}
+gridExtra::grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
