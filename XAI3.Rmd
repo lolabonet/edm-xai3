@@ -62,7 +62,6 @@ p_hum  <- partial(rf_bike, pred.var = "hum",               grid.resolution = 100
 p_wind <- partial(rf_bike, pred.var = "windspeed",         grid.resolution = 100)
 ```
 
-
 *1.5. Plot them side by side*
 
 ```{r}
@@ -112,7 +111,6 @@ p4 <- autoplot(p_wind,
 # Arrange side by side
 gridExtra::grid.arrange(p1, p2, p3, p4, nrow = 2)
 ```
-
 
 
 **2. 2D PDP: Humidity vs Temperature**
